@@ -1,4 +1,4 @@
-#include <iostream>
+#include <vector>
 
 #include <SFML/Graphics/Color.hpp>
 #include <SFML/Graphics/Font.hpp>
@@ -10,7 +10,9 @@
 #include "world.hpp"
 #include "math.hpp"
 
-void render(std::vector<sf::Vertex>& screen, const world::Player& player, const sf::Vector2f& renderSize);
+using Screen = std::vector<sf::Vertex>;
+
+void render(Screen& screen, const world::Player& player) noexcept;
 
 // forward/backward movement
 void move(world::Player& player, float dt) noexcept;
@@ -19,12 +21,15 @@ void rotate(world::Player& player, float dt) noexcept;
 void inputPress(world::Player& player, sf::Keyboard::Key key) noexcept;
 void inputRelease(world::Player& player, sf::Keyboard::Key key) noexcept;
 
+void initScreen(Screen& screen) noexcept;
+
+const sf::Vector2f renderSize{ 640, 360 };
+const sf::VideoMode windowMode{ 1280, 720 };
+
+constexpr auto vertsPerColumn = 6u;
+
 int main(int argc, char** argv)
 {
-    const sf::Vector2f renderSize{ 640, 360 };
-    const sf::VideoMode windowMode{ 1280, 720 };
-    const sf::Color clearColor{ 127, 127, 127 };
-
     sf::View renderView{ renderSize / 2.f, renderSize };
 
     sf::Font font;
@@ -35,18 +40,18 @@ int main(int argc, char** argv)
     frameTimeText.setFillColor(sf::Color::Black);
 
     constexpr auto frameTimeBufLen = 7;
-    char frameTimeBuf[frameTimeBufLen] = { '\0' };
+    char frameTimeBuf[frameTimeBufLen + 1] = { '\0' };
 
-    // we're drawing one line per x coordinate. Only need two points for a line
-    std::vector<sf::Vertex> screen{ static_cast<size_t>(renderSize.x * 2) };
+    // So, partial lie. This isn't "full" raycasting. I mean, there is raycasting. But I'm not pushing
+    // a whole screen buffer every frame. I'm only pushing vertices to draw lines. So. Yeah.
 
-    // init each pair of vertices' positions to a single column
-    // and make them transparent by default
-    for (auto x = 0u; x < screen.size(); ++x)
-    {
-        screen[x].position.x = static_cast<float>(x / 2);
-        screen[x].color = sf::Color::Transparent;
-    }
+    // we're drawing 3 lines per x coordinate. 2 vertices per line
+    // line 1 (v0, v1): ceiling
+    // line 2 (v2, v3): walls/empty/etc
+    // line 3 (v4, v5): floor
+    std::vector<sf::Vertex> screen{ static_cast<size_t>(renderSize.x * 2 * 3) };
+
+    initScreen(screen);
 
     world::Player player{ {15.f, 15.f}, {-1.f, 0.f}, {0.f, 0.66f} };
 
@@ -59,6 +64,10 @@ int main(int argc, char** argv)
 
     sf::Clock clock;
     auto lastTime = clock.getElapsedTime();
+
+    ///////////////////////////////////////////////////////////////////////
+    // let's get started already!
+    ///////////////////////////////////////////////////////////////////////
 
     while (window.isOpen())
     {
@@ -100,7 +109,7 @@ int main(int argc, char** argv)
         lastTime = nowTime;
 
         float dt = frameTime.asSeconds();
-        std::snprintf(frameTimeBuf, frameTimeBufLen, "%0*.*f", frameTimeBufLen, frameTimeBufLen - 2, dt);
+        std::snprintf(frameTimeBuf, sizeof(frameTimeBuf), "%0*.*f", frameTimeBufLen, frameTimeBufLen - 2, dt);
         frameTimeText.setString(frameTimeBuf);
 
         move(player, dt);
@@ -110,13 +119,13 @@ int main(int argc, char** argv)
         // rendering
         ///////////////////////////////////////////////////////////////////////
 
-        render(screen, player, renderSize);
+        render(screen, player);
 
         ///////////////////////////////////////////////////////////////////////
         // display!
         ///////////////////////////////////////////////////////////////////////
 
-        window.clear(clearColor);
+        window.clear();
 
         window.setView(renderView);
         window.draw(screen.data(), screen.size(), sf::PrimitiveType::Lines);
@@ -130,7 +139,7 @@ int main(int argc, char** argv)
     return 0;
 }
 
-void render(std::vector<sf::Vertex>& screen, const world::Player& player, const sf::Vector2f& renderSize)
+void render(Screen& screen, const world::Player& player) noexcept
 {
     const auto centerLine = renderSize.y / 2.f;
 
@@ -145,17 +154,22 @@ void render(std::vector<sf::Vertex>& screen, const world::Player& player, const 
         auto ray = math::raycast(player.position, rayDir);
         auto dist = math::planeDistance(player.position, rayDir, ray);
 
-        auto idx = x * 2;
-        auto& top = screen[idx];
-        auto& bot = screen[idx + 1];
+        auto idx = x * vertsPerColumn;
+        auto& ceilBot  = screen[idx + 1];
+        auto& wallTop  = screen[idx + 2];
+        auto& wallBot  = screen[idx + 3];
+        auto& floorTop = screen[idx + 4];
 
         auto halfHeight = renderSize.y / dist / 2.f;
-        top.position.y = centerLine - halfHeight;
-        bot.position.y = centerLine + halfHeight;
+        wallTop.position.y = centerLine - halfHeight;
+        wallBot.position.y = centerLine + halfHeight;
+
+        ceilBot.position.y = wallTop.position.y;
+        floorTop.position.y = wallBot.position.y;
         
         auto color = world::color(ray.hitPoint);
-        top.color = color;
-        bot.color = color;
+        wallTop.color = color;
+        wallBot.color = color;
     }
 }
 
@@ -240,5 +254,36 @@ void inputRelease(world::Player& player, sf::Keyboard::Key key) noexcept
 
         default:
             break;
+    }
+}
+
+void initScreen(Screen& screen) noexcept
+{
+    // init each pair of vertices' positions to a single column
+    // and make them transparent by default
+    for (auto x = 0u; x < screen.size(); ++x)
+    {
+        screen[x].position.x = static_cast<float>(x / vertsPerColumn);
+        
+        // now, the top ceiling and the bottom floor y component never change.
+        // and ceiling and floor colors never change. so set them all here too.
+
+        switch (x % 6)
+        {
+            case 0:
+                screen[x].position.y = 0.f;
+            case 1:
+                screen[x].color = world::ceilingColor;
+                break;
+
+            case 5:
+                screen[x].position.y = renderSize.y;
+            case 4:
+                screen[x].color = world::floorColor;
+                break;
+
+            default:
+                break;
+        }
     }
 }

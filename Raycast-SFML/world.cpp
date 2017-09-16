@@ -1,5 +1,7 @@
 #include "world.hpp"
 
+#include <array>
+
 namespace world
 {
     // lazy as hell

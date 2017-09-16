@@ -1,12 +1,9 @@
 #pragma once
 
 #include <cstdint>
-#include <array>
-#include <vector>
 
 #include <SFML/Graphics/Color.hpp>
-#include <SFML/Graphics/Vertex.hpp>
-#include <SFML/System/Vector3.hpp>
+#include <SFML/System/Vector2.hpp>
 
 namespace world
 {
@@ -36,6 +33,9 @@ namespace world
         Inner2 = 3,
         Column = 4,
     };
+
+    static const sf::Color floorColor = sf::Color{ 244, 239, 203 };
+    static const sf::Color ceilingColor = sf::Color{ 111, 163, 247 };
 
     constexpr size_t width = 32u;
     constexpr size_t height = 32u;

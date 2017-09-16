@@ -1,7 +1,6 @@
 #include "math.hpp"
 
 #include <cmath>
-#include <limits>
 
 namespace math
 {
